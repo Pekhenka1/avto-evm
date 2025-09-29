@@ -1,0 +1,86 @@
+name: Burst 100 PRs ()
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: burst-prs
+  cancel-in-progress: false
+
+jobs:
+  make-prs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure jq
+        run: |
+          if ! command -v jq >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
+      - name: Detect base branch
+        id: base
+        run: |
+          BASE="${{ github.event.repository.default_branch }}"
+          if [ -z "$BASE" ]; then
+            BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's|^origin/||')
+          fi
+          if [ -z "$BASE" ] && git show-ref --verify --quiet refs/remotes/origin/main; then BASE=main; fi
+          if [ -z "$BASE" ] && git show-ref --verify --quiet refs/remotes/origin/master; then BASE=master; fi
+          git fetch origin "$BASE":"refs/remotes/origin/$BASE"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "Using base branch: $BASE"
+
+      - name: Setup Git author
+        run: |
+          git config user.name "${GITHUB_ACTOR}"
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+
+      - name: Create 100 PRs ~6s apart
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:  ${{ github.repository }}
+          BASE:  ${{ steps.base.outputs.base }}
+        run: |
+          set -e
+          COUNT=100
+          INTERVAL=6
+          PREF="auto/pr-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for i in $(seq 1 "$COUNT"); do
+            BR="${PREF}-$i"
+            git checkout -B "$BR" "origin/$BASE"
+
+            # папку создаём в каждой ветке
+            mkdir -p pr_logs
+            echo "$(date -u +'%Y-%m-%d %H:%M:%S UTC') run=${GITHUB_RUN_ID} i=$i" >> "pr_logs/entry-$i.txt"
+            git add pr_logs/entry-$i.txt
+            git commit -m "chore: add pr_logs/entry-$i.txt" || echo "No changes for $BR"
+
+            git push -u origin "$BR"
+
+            BODY=$(jq -n \
+              --arg title "Auto PR #$i (run ${GITHUB_RUN_ID})" \
+              --arg head  "$BR" \
+              --arg base  "$BASE" \
+              --arg desc  "Automated PR $i from $BR to $BASE" \
+              '{title:$title, head:$head, base:$base, body:$desc, draft:false}')
+
+            # Если политика разрешена — сработает с GITHUB_TOKEN.
+            curl -sS -X POST \
+              -H "Authorization: Bearer $TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -d "$BODY" "https://api.github.com/repos/$REPO/pulls" \
+              | jq -r '.number // .message // "ERR"'
+
+            sleep "$INTERVAL"
+          done
