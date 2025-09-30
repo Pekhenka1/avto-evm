@@ -2,7 +2,7 @@ var cooking = require('cooking');
 var Components = require('../components.json');
 var webpack = require('webpack');
 var config = require('./config');
-
+wqw  
 cooking.set({
   entry: Components,
   dist: './lib/',
