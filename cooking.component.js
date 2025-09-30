@@ -1,7 +1,7 @@
 var cooking = require('cooking');
 var Components = require('../components.json');
 var webpack = require('webpack');
-var config = require('./config');
+var config = require('./config');c
 
 cooking.set({
   entry: Components,
