@@ -1,6 +1,6 @@
 var cooking = require('cooking');
 var Components = require('../components.json');
-var webpack = require('webpack');
+var webpack = require('webpack');wqwqwq
 var config = require('./config');
 
 cooking.set({
